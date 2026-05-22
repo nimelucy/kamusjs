@@ -21,7 +21,6 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            <!-- KOLOM KIRI: INPUT & KONTROL -->
             <div class="flex flex-col gap-4 border-r pr-6">
                 
                 <div>
@@ -49,7 +48,6 @@
                     Mulai Ekstraksi AI
                 </button>
 
-                <!-- Progress Bar -->
                 <div id="progressContainer" class="hidden">
                     <div class="flex justify-between text-sm font-bold text-gray-700 mb-1">
                         <span id="progressText">Memproses Batch 0 / 0</span>
@@ -62,7 +60,6 @@
                 </div>
             </div>
 
-            <!-- KOLOM KANAN: OUTPUT HASIL KAMUS -->
             <div class="flex flex-col h-full pl-2">
                 <div class="flex justify-between items-center mb-2">
                     <label class="block text-sm font-bold text-gray-700">Hasil `kamus.js` (Otomatis Digabung)</label>
@@ -75,10 +72,30 @@
                 
                 <textarea id="outputCode" class="flex-1 w-full p-3 border border-gray-300 rounded font-mono text-xs bg-gray-50" readonly placeholder="Kode akan muncul di sini setelah diproses..."></textarea>
                 
-                <button onclick="copyKamus()" id="copyBtn" class="mt-4 w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 font-bold transition">Copy Code Kamus.js</button>
+                <div class="mt-4 flex gap-3">
+                    <button onclick="copyKamus()" id="copyBtn" class="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700 font-bold transition flex items-center justify-center gap-2">
+                        📋 Copy Code
+                    </button>
+                    <button onclick="downloadKamus()" id="downloadBtn" class="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700 font-bold transition flex items-center justify-center gap-2">
+                        💾 Download .js
+                    </button>
+                </div>
             </div>
         </div>
     </div>
+
+    <textarea id="aiSystemPrompt" style="display:none;">
+Anda adalah Ahli NLP & SEO Lexicographer. Tugas Anda adalah mengekstrak kamus dari array keywords yang diberikan user.
+
+Kategorikan ke dalam 3 jenis ini:
+1. "stopWords": Kata hubung, preposisi, pronouns, dan kata tanya yang tidak punya nilai SEO (contoh: a, the, on, to, does, who, are).
+2. "intentVerbs": Kata kerja spesifik yang menunjukkan niat/tindakan (contoh: buy, apply, accept, affect, take, get).
+3. "entityFixes": Objek JSON untuk menyatukan merek/konsep yang terpisah atau salah eja (contoh: "ebt food stamps": "foodstamps", "sam s club": "samsclub", "baskin robbins": "baskinrobbins").
+
+ATURAN KETAT:
+- BALAS HANYA DENGAN JSON OBJECT VALID, tanpa markdown, tanpa teks pembuka/penutup!
+- Format Wajib: {"stopWords": ["..."], "intentVerbs": ["..."], "entityFixes": {"...": "..."}}
+    </textarea>
 
     <script>
         // State Global untuk menampung hasil dari semua batch
@@ -152,23 +169,12 @@
         }
 
         async function processBatchWithAI(keywordsArray, apiKey, aiModel) {
-            const systemPrompt = `
-            Anda adalah Ahli NLP & SEO Lexicographer. Tugas Anda adalah mengekstrak kamus dari array keywords yang diberikan user.
-            
-            Kategorikan ke dalam 3 jenis ini:
-            1. "stopWords": Kata hubung, preposisi, pronouns, dan kata tanya yang tidak punya nilai SEO (contoh: a, the, on, to, does, who, are).
-            2. "intentVerbs": Kata kerja spesifik yang menunjukkan niat/tindakan (contoh: buy, apply, accept, affect, take, get).
-            3. "entityFixes": Objek JSON untuk menyatukan merek/konsep yang terpisah atau salah eja (contoh: "ebt food stamps": "foodstamps", "sam s club": "samsclub", "baskin robbins": "baskinrobbins").
-
-            ATURAN KETAT:
-            - BALAS HANYA DENGAN JSON OBJECT VALID, tanpa markdown, tanpa teks pembuka/penutup!
-            - Format Wajib: {"stopWords": ["..."], "intentVerbs": ["..."], "entityFixes": {"...": "..."}}
-            `;
+            const systemPromptText = document.getElementById('aiSystemPrompt').value.trim();
 
             const payload = {
                 model: aiModel,
                 messages: [
-                    { role: "system", content: systemPrompt },
+                    { role: "system", content: systemPromptText },
                     { role: "user", content: JSON.stringify(keywordsArray) }
                 ],
                 temperature: 0.1
@@ -185,7 +191,13 @@
             const jsonResponse = await response.json();
             if (jsonResponse.error) throw new Error(jsonResponse.error.message);
 
-            let aiText = jsonResponse.choices[0].message.content.replace(/```json/gi, '').replace(/```/g, '').trim();
+            // Pembersihan Backtick JSON 100% Aman dari Editor
+            let aiText = jsonResponse.choices[0].message.content;
+            let bt = String.fromCharCode(96) + String.fromCharCode(96) + String.fromCharCode(96);
+            aiText = aiText.split(bt + "json").join("");
+            aiText = aiText.split(bt + "JSON").join("");
+            aiText = aiText.split(bt).join("");
+            aiText = aiText.trim();
             
             const result = JSON.parse(aiText);
 
@@ -233,18 +245,45 @@
             outputEl.scrollTop = outputEl.scrollHeight;
         }
 
+        // --- FUNGSI COPY ---
         function copyKamus() {
             const text = document.getElementById('outputCode').value;
-            if(!text.trim()) return;
+            if(!text.trim()) return alert("Kode kamus masih kosong!");
+            
             navigator.clipboard.writeText(text).then(() => {
                 const btn = document.getElementById('copyBtn');
-                btn.innerText = "✓ Kode Disalin!";
+                btn.innerHTML = "✓ Tersalin!";
                 btn.classList.replace('bg-green-600', 'bg-gray-600');
                 setTimeout(() => {
-                    btn.innerText = "Copy Code Kamus.js";
+                    btn.innerHTML = "📋 Copy Code";
                     btn.classList.replace('bg-gray-600', 'bg-green-600');
                 }, 2000);
             });
+        }
+
+        // --- FUNGSI DOWNLOAD OTOMATIS ---
+        function downloadKamus() {
+            const text = document.getElementById('outputCode').value;
+            if(!text.trim()) return alert("Tidak ada kode untuk di-download!");
+
+            // 1. Bungkus teks ke dalam Blob (Virtual File)
+            const blob = new Blob([text], { type: "text/javascript" });
+            
+            // 2. Buat URL sementara untuk Blob tersebut
+            const url = URL.createObjectURL(blob);
+            
+            // 3. Buat elemen <a> bayangan (tidak terlihat di layar)
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "kamus.js"; // Nama file yang akan terunduh
+            
+            // 4. Klik elemen <a> tersebut secara paksa via sistem
+            document.body.appendChild(a);
+            a.click();
+            
+            // 5. Bersihkan sampah memori
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
     </script>
 </body>
