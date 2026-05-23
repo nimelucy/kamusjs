@@ -103,6 +103,9 @@ ATURAN KETAT:
         let globalIntentVerbs = new Set();
         let globalEntityFixes = {};
 
+        // Fungsi penunda untuk Auto-Retry & Jeda Anti-Blokir
+        const sleep = function(ms) { return new Promise(resolve => setTimeout(resolve, ms)); };
+
         function logStatus(msg) {
             const logEl = document.getElementById('statusLog');
             logEl.innerHTML = `> ${msg}<br>${logEl.innerHTML}`;
@@ -137,7 +140,7 @@ ATURAN KETAT:
             btn.classList.replace('bg-indigo-600', 'bg-gray-400');
             document.getElementById('progressContainer').classList.remove('hidden');
 
-            // 2. Loop melalui setiap Batch (Sequential agar tidak membebani API)
+            // 2. Loop melalui setiap Batch dengan Auto-Retry
             logStatus(`Memulai ekstraksi ${lines.length} keywords dalam ${batches.length} batch...`);
             
             for (let i = 0; i < batches.length; i++) {
@@ -148,14 +151,36 @@ ATURAN KETAT:
                 
                 logStatus(`Mengirim Batch ${i + 1} ke AI...`);
 
-                try {
-                    await processBatchWithAI(batches[i], apiKey, aiModel);
-                    updateOutputUI();
-                } catch (error) {
-                    logStatus(`<span class="text-red-500">Error di Batch ${i + 1}: ${error.message}</span>`);
-                    if(!confirm(`Terjadi error di Batch ${i + 1}: ${error.message}.\nLanjut ke batch berikutnya?`)) {
+                // FITUR AUTO-RETRY (Maksimal 3 Kali)
+                let maxRetries = 3;
+                let batchSuccess = false;
+
+                for (let coba = 1; coba <= maxRetries; coba++) {
+                    try {
+                        await processBatchWithAI(batches[i], apiKey, aiModel);
+                        updateOutputUI();
+                        batchSuccess = true; // Berhasil, keluar dari loop retry
+                        break; 
+                    } catch (error) {
+                        logStatus(`<span class="text-red-500">Error Batch ${i + 1} (Percobaan ${coba}): ${error.message}</span>`);
+                        
+                        if (coba < maxRetries) {
+                            logStatus(`<span class="text-yellow-600">Koneksi bermasalah. Mencoba ulang Batch ${i + 1} dalam 5 detik...</span>`);
+                            await sleep(5000); 
+                        }
+                    }
+                }
+
+                // Jika sudah 3x coba tapi gagal total
+                if (!batchSuccess) {
+                    if(!confirm(`Batch ${i + 1} gagal diproses setelah 3x percobaan.\nKlik 'OK' untuk SKIP (data batch hangus), atau 'Cancel' untuk hentikan semua proses.`)) {
+                        logStatus(`<span class="text-red-600 font-bold">Proses dihentikan paksa oleh pengguna.</span>`);
                         break;
                     }
+                } else if (i < batches.length - 1) {
+                    // Beri jeda 2 detik agar API SumoPod tidak memblokir (Too Many Requests)
+                    logStatus(`<span class="text-blue-500">Jeda 2 detik (Mencegah Rate-Limit API)...</span>`);
+                    await sleep(2000); 
                 }
             }
 
